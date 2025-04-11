@@ -206,8 +206,9 @@ class View(QWidget):
 
     def try_hide_top_view(self):
         if get_emacs_func_cache_result("eaf-emacs-not-use-reparent-technology", []):
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
-            self.hide()
+            print("Comment this function. there is a clicking issue on MacOS.")
+            # self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+            # self.hide()
 
     def destroy_view(self):
         # print("Destroy: ", self.buffer.url)
