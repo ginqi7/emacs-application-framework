@@ -37,7 +37,7 @@ parser.add_argument("--app-save-local-edit", action="store_true",
 args = parser.parse_args()
 
 NPM_CMD = "npm.cmd" if sys.platform == "win32" else "npm"
-PIP_CMD = "pip3" if which("pip3") else "pip" # mac only have pip3, so we need use pip3 instead pip
+PIP_CMD = [sys.executable, "-m", "pip"]
 
 class bcolors:
     HEADER = '\033[95m'
@@ -77,8 +77,8 @@ def run_command(command, path=script_path, ensure_pass=True, get_result=False):
 
     # Throw exception if command not found,
     # We found install-eaf.py still can work even it not found npm in system.
-    if not which(command[0]):
-        return Exception(f"Not found command: {command[0]}")
+    if (not which(command[0])) and ensure_pass:
+        raise Exception(f"Not found command: {command[0]}")
 
     # Use LC_ALL=C to make sure command output use English.
     # Then we can use English keyword to check command output.
@@ -133,6 +133,8 @@ def install_sys_deps(distro: str, deps_list):
     elif distro == 'pacman':
         aur_helper = get_archlinux_aur_helper()
         command = [aur_helper, '-Sy', '--noconfirm', '--needed']
+    elif distro == 'xbps':
+        command = ['sudo', 'xbps-install', '-Sy']
     elif which("pkg"):
         command = ['doas', 'pkg', '-y', 'install']
     elif which("guix"):
@@ -152,12 +154,12 @@ def install_py_deps(deps_list):
     if sys.prefix == sys.base_prefix:
         # pass --break-system-packages to permit installing packages into EXTERNALLY-MANAGED Python installations. see https://github.com/pypa/pip/issues/11780
         if get_distro() != "guix" and os.path.exists(os.path.join(sysconfig.get_path("stdlib", sysconfig.get_default_scheme() if hasattr(sysconfig, "get_default_scheme") else sysconfig._get_default_scheme()),"EXTERNALLY-MANAGED")):
-            command = [PIP_CMD, 'install', '--user', '--break-system-packages', '-U']
+            command = PIP_CMD + ['install', '--user', '--break-system-packages', '-U']
         else:
-            command = [PIP_CMD, 'install', '--user', '-U']
+            command = PIP_CMD + ['install', '--user', '-U']
     else:
         # if running on a virtual env, --user option is not valid.
-        command = [PIP_CMD, 'install', '-U']
+        command = PIP_CMD + ['install', '-U']
     command.extend(deps_list)
     try:
         run_command(command)
@@ -309,6 +311,8 @@ def get_distro():
         distro = "brew"
     elif which("nix"):
         distro = "nix"
+    elif which("xbps-install"):
+        distro = "xbps"
     elif sys.platform == "linux":
         print("[EAF] Unsupported Linux distribution/package manager.")
         print(" Please see dependencies.json for list of dependencies.")

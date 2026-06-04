@@ -545,6 +545,12 @@ Only turn off this option when you want investigate the cause of the crash."
 When enabled, EAF will use eaf-file-manager to open file from dired."
   :type 'boolean)
 
+(defcustom eaf-find-file-advisor-enable t
+  "Toggle to enable/disable the EAF advisor for find-file.
+
+When enabled, EAF will use eaf-file-manager to open files."
+  :type 'boolean)
+
 (defvar eaf--monitor-configuration-p t
   "When this variable is non-nil, `eaf-monitor-configuration-change' executes.
 This variable is used to open buffer in backend and avoid graphics blink.
@@ -657,34 +663,34 @@ A hashtable, key is url and value is title.")
                               (not (string-match-p "QT_SCREEN_SCALE_FACTOR" var))))
                        process-environment)))
     (when eaf-enable-debug
-      (add-to-list 'environments "QT_DEBUG_PLUGINS=1" t))
+      (cl-pushnew "QT_DEBUG_PLUGINS=1" environments :test #'equal))
 
     (unless (eq system-type 'darwin)
-      (add-to-list 'environments
-                   (cond
-                    ((eaf-emacs-running-in-wayland-native)
-                     ;; Wayland native need to set QT_AUTO_SCREEN_SCALE_FACTOR=1
-                     ;; otherwise Qt window only have half of screen.
-                     "QT_AUTO_SCREEN_SCALE_FACTOR=1")
-                    (t
-                     ;; XWayland need to set QT_AUTO_SCREEN_SCALE_FACTOR=0
-                     ;; otherwise Qt which explicitly force high DPI enabling get scaled TWICE.
-                     "QT_AUTO_SCREEN_SCALE_FACTOR=0"))
-                   t)
+      (cl-pushnew (cond
+                   ((eaf-emacs-running-in-wayland-native)
+                    ;; Wayland native need to set QT_AUTO_SCREEN_SCALE_FACTOR=1
+                    ;; otherwise Qt window only have half of screen.
+                    "QT_AUTO_SCREEN_SCALE_FACTOR=1")
+                   (t
+                    ;; XWayland need to set QT_AUTO_SCREEN_SCALE_FACTOR=0
+                    ;; otherwise Qt which explicitly force high DPI enabling get scaled TWICE.
+                    "QT_AUTO_SCREEN_SCALE_FACTOR=0"))
+                  environments
+                  :test #'equal)
 
-      (add-to-list 'environments "QT_FONT_DPI=96" t)
+      (cl-pushnew "QT_FONT_DPI=96" environments :test #'equal)
 
       ;; Make sure EAF application scale support 4k screen.
-      (add-to-list 'environments "QT_SCALE_FACTOR=1" t)
+      (cl-pushnew "QT_SCALE_FACTOR=1" environments :test #'equal)
 
       ;; Fix CORS problem.
-      (add-to-list 'environments "QTWEBENGINE_CHROMIUM_FLAGS=--disable-web-security" t)
+      (cl-pushnew "QTWEBENGINE_CHROMIUM_FLAGS=--disable-web-security" environments :test #'equal)
 
       ;; Use XCB for input event transfer.
       ;; Only enable this option on Linux platform.
       (when (and (eq system-type 'gnu/linux)
                  (not (eaf-emacs-running-in-wayland-native)))
-        (add-to-list 'environments "QT_QPA_PLATFORM=xcb" t)))
+        (cl-pushnew "QT_QPA_PLATFORM=xcb" environments :test #'equal)))
     environments))
 
 (defvar eaf-start-process-hook nil)
@@ -823,8 +829,9 @@ We need calcuate render allocation to make sure no black border around render co
   (let* ((window-edges (window-pixel-edges window))
          (x (nth 0 window-edges))
          (y (+ (nth 1 window-edges)
+               (window-header-line-height window)
                (if (version< emacs-version "27.0")
-                   (window-header-line-height window)
+                   0
                  (window-tab-line-height window))))
          (w (- (nth 2 window-edges) x))
          (h (- (nth 3 window-edges) (window-mode-line-height window) y)))
@@ -1043,32 +1050,32 @@ Including title-bar, menu-bar, offset depends on window system, and border."
       (+ (eaf--frame-top frame) (eaf--frame-internal-height frame))
     0))
 
-(defun eaf-emacs-not-use-reparent-technology ()
-  "When Emacs running in macOS、Wayland native or terminal environment,
+(eval-and-compile
+
+  (defun eaf-emacs-not-use-reparent-technology ()
+    "When Emacs running in macOS、Wayland native or terminal environment,
 we can't use 'cross-process reparent' technicality like we does in X11, XWayland or Windows.
 
 In this situation, we use 'stay on top' technicality that show EAF window when Emacs get focus, hide EAF window when Emacs lost focus.
 
 'Stay on top' technicality is not perfect like 'cross-process reparent' technicality,
 provide at least one way to let everyone experience EAF. ;)"
-  (or (eq system-type 'darwin)              ;macOS
-      (eaf-emacs-running-in-wayland-native) ;Wayland native
-      (not (display-graphic-p))             ;Terminal emulator
-      ))
+    (or (eq system-type 'darwin)              ;macOS
+        (eaf-emacs-running-in-wayland-native) ;Wayland native
+        ))
 
-(defun eaf-emacs-running-in-wayland-native ()
-  (eq window-system 'pgtk))
+  (defun eaf-emacs-running-in-wayland-native ()
+    (eq window-system 'pgtk))
 
-(defun eaf--on-hyprland-p ()
-  (string-equal (getenv "XDG_CURRENT_DESKTOP") "Hyprland"))
+  (defun eaf--on-hyprland-p ()
+    (string-equal (getenv "XDG_CURRENT_DESKTOP") "Hyprland"))
 
-(defun eaf--on-unity-p ()
-  (string-equal (getenv "XDG_CURRENT_DESKTOP") "Unity"))
+  (defun eaf--on-unity-p ()
+    (string-equal (getenv "XDG_CURRENT_DESKTOP") "Unity"))
 
-(defun eaf--on-sway-p ()
-  (string-equal (getenv "XDG_SESSION_DESKTOP") "sway"))
+  (defun eaf--on-sway-p ()
+    (string-equal (getenv "XDG_SESSION_DESKTOP") "sway"))
 
-(eval-when-compile
   (when (eaf-emacs-not-use-reparent-technology)
     (defvar eaf--topmost-switch-to-python nil
       "Record if Emacs should switch to Python process.")
@@ -1076,7 +1083,7 @@ provide at least one way to let everyone experience EAF. ;)"
     (defun eaf--topmost-focus-change ()
       "Manage Emacs's focus change."
       (let* ((front (cond ((eq system-type 'darwin)
-                           (shell-command-to-string "app-frontmost --name"))
+                           (string-trim (shell-command-to-string "osascript -e 'tell application \"System Events\" to get name of first application process whose frontmost is true'")))
                           ((eaf--on-sway-p)
                            (if (executable-find "jq")
                                (shell-command-to-string "swaymsg -t get_tree | jq -r '..|try select(.focused == true).app_id'")
@@ -1211,19 +1218,19 @@ Such as, wayland native, macOS etc."
   (if (eaf-emacs-running-in-wayland-native)
       (cond ((eaf--on-sway-p)
              (eaf--split-number (shell-command-to-string
-				 (format "swaymsg -t get_tree | jq -r '..|try select(.pid == %d).deco_rect|.x,.y'" (emacs-pid)))))
+				                 (format "swaymsg -t get_tree | jq -r '..|try select(.pid == %d).deco_rect|.x,.y'" (emacs-pid)))))
             ((eaf--on-hyprland-p)
              (let ((clients (json-parse-string (shell-command-to-string "hyprctl -j clients")))
-		   (coordinate))
+		           (coordinate))
                (dotimes (i (length clients))
-		 (when (equal (gethash "pid" (aref clients i)) (emacs-pid))
-		   (setq coordinate (gethash "at" (aref clients i)))))
+		         (when (equal (gethash "pid" (aref clients i)) (emacs-pid))
+		           (setq coordinate (gethash "at" (aref clients i)))))
                (list (aref coordinate 0) (aref coordinate 1))))
             (t
              (require 'dbus)
              (let* ((coordinate (eaf--split-number
-				 (dbus-call-method :session "org.gnome.Shell" "/org/eaf/wayland" "org.eaf.wayland" "get_emacs_window_coordinate" :timeout 1000)
-				 ","))
+				                 (dbus-call-method :session "org.gnome.Shell" "/org/eaf/wayland" "org.eaf.wayland" "get_emacs_window_coordinate" :timeout 1000)
+				                 ","))
                     ;; HiDPI need except by `frame-scale-factor'.
                     (frame-x (truncate (/ (car coordinate) (frame-scale-factor))))
                     (frame-y (truncate (/ (cadr coordinate) (frame-scale-factor)))))
@@ -1241,7 +1248,7 @@ Such as, wayland native, macOS etc."
                     0)
                    ((eaf--on-sway-p)
                     (string-to-number (shell-command-to-string
-                      (format "swaymsg -t get_tree | jq -r '..|try select(.pid == %d).deco_rect|.height'" (emacs-pid)))))
+                                       (format "swaymsg -t get_tree | jq -r '..|try select(.pid == %d).deco_rect|.height'" (emacs-pid)))))
                    (t
                     32)))))
         (t
@@ -1556,7 +1563,7 @@ WEBENGINE-INCLUDE-PRIVATE-CODEC is only useful when app-name is video-player."
         app)
     (dolist (app-extension eaf-app-extensions-alist)
       (when (member extension-name (symbol-value (cdr app-extension)))
-        (add-to-list 'apps (car app-extension))))
+        (cl-pushnew (car app-extension) apps :test #'equal)))
     (if (= (length apps) 1)
         (car apps)
       (setq app (completing-read (format "Which app to open %s: " url) apps))
@@ -1787,18 +1794,18 @@ So multiple EAF buffers visiting the same file do not sync with each other."
             (member "ATHENA" system-configuration-arguments))
         (message "Please compile emacs use option --with-x-toolkit=gtk3, otherwise EAF can't focus emacs window expected.")
       (when eaf-is-member-of-focus-fix-wms
-          ;; When switch app focus in WM, such as, i3 or qtile.
-          ;; Emacs window cannot get the focus normally if mouse in EAF buffer area.
-          ;;
-          ;; So we move mouse out of Emacs to the nearest outter border, then refocus on Emacs winodw.
-	  (if (eaf--on-hyprland-p)
-	      (shell-command (format "hyprctl dispatch focuswindow pid:%d" (emacs-pid)))
-	    (eaf-call-async "eval_function" (or eaf--buffer-id buffer_id) "move_cursor_to_nearest_border" (key-description (this-command-keys-vector)))))
-    
-        ;; Activate the window by `wmctrl' when possible
-        (if (executable-find "wmctrl")
-            (shell-command-to-string (format "wmctrl -i -a $(wmctrl -lp | awk -vpid=$PID '$3==%s {print $1; exit}')" (emacs-pid)))
-          (message "Please install wmctrl to active Emacs window.")))))
+        ;; When switch app focus in WM, such as, i3 or qtile.
+        ;; Emacs window cannot get the focus normally if mouse in EAF buffer area.
+        ;;
+        ;; So we move mouse out of Emacs to the nearest outter border, then refocus on Emacs winodw.
+	    (if (eaf--on-hyprland-p)
+	        (shell-command (format "hyprctl dispatch focuswindow pid:%d" (emacs-pid)))
+	      (eaf-call-async "eval_function" (or eaf--buffer-id buffer_id) "move_cursor_to_nearest_border" (key-description (this-command-keys-vector)))))
+
+      ;; Activate the window by `wmctrl' when possible
+      (if (executable-find "wmctrl")
+          (shell-command-to-string (format "wmctrl -i -a $(wmctrl -lp | awk -vpid=$PID '$3==%s {print $1; exit}')" (emacs-pid)))
+        (message "Please install wmctrl to active Emacs window.")))))
 
 (defun eaf--activate-emacs-mac-window()
   "Activate Emacs macOS window."
@@ -1980,8 +1987,9 @@ You can configure a blacklist using `eaf-find-file-ext-blacklist'"
 
 It currently identifies PDF, videos, images, and mindmap file extensions."
   (eaf--find-file orig-fn file nil args))
-(advice-add #'find-file :around #'eaf--find-file-advisor)
-(advice-add #'org-open-file :around #'eaf--find-file-advisor)
+(when eaf-find-file-advisor-enable
+  (advice-add #'find-file :around #'eaf--find-file-advisor)
+  (advice-add #'org-open-file :around #'eaf--find-file-advisor))
 
 ;; Use `eaf-open' in `dired-find-file' and `dired-find-alternate-file'
 (defun eaf--dired-find-file-advisor (orig-fn)
